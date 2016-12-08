@@ -1,0 +1,17 @@
+---
+- hosts: localhost
+
+  tasks:
+  - name: Create group trigger
+    hawkular_alerts_group:
+      hawkular_api_hostname: 'hawkular-hostname.example.com'
+      hawkular_api_port: 443
+      hawkular_api_auth_token: '******'
+      tenant: '_system'
+      group_id: 'test_group-01'
+      name: 'Test Group 01'
+      severity: 'HIGH'
+      state: 'present'
+    register: result
+
+  - debug: var=result
