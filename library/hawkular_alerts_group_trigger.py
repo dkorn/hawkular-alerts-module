@@ -4,7 +4,7 @@
 DOCUMENTATION = '''
 ---
 module: hawkular_alerts_group_trigger
-short_description: Creating Group Triggers in Hawkular Alerting
+short_description: Creating and deleting Group Triggers in Hawkular Alerting
 requirements: [ hawkular/hawkular-client-python ]
 author: Daniel Korn (@dkorn)
 options:
@@ -55,9 +55,11 @@ options:
     required: False
   state:
     description:
-      - the state of the user
+      - the state of the group trigger
       - On present, it will create the group trigger
       if it does not exist
+      - On absent, it will delete the group trigger,
+      if it exists
     required: True
     choices: ['present', 'absent']
   enabled:
@@ -89,12 +91,36 @@ import ssl
 
 
 class HawkularAlertsGroupTrigger(object):
-    """ Hawkular Alerts object to create group triggers in Hawkular
+    """ Hawkular Alerts object to create and delete group triggers in Hawkular
     """
     def __init__(self, module, tenant, hostname, port, scheme, token, context):
         self.module  = module
         self.client  = hawkular.alerts.HawkularAlertsClient(tenant, host=hostname, port=port, scheme=scheme, token=token, context=context)
         self.changed = False
+
+    def delete_group_trigger(self, group_id):
+        """ Deleted a group trigger in Hawkular Alerting component
+
+            Returns:
+                whether or not a change took place and a short message
+                describing the operation executed
+        """
+        try:
+            self.client.get_trigger(group_id)
+            self.client.delete_group_trigger(group_id)
+            self.changed = True
+            return dict(
+                msg="Successfully deleted group trigger {group_id}".format(group_id=group_id),
+                changed=self.changed)
+        except urllib2.HTTPError as e:
+            if e.code == 404:
+                return dict(
+                    msg="Group trigger {group_id} doesn't exist".format(group_id=group_id),
+                    changed=self.changed)
+            else:
+                self.module.fail_json(msg="Failed to delete group trigger. Error: {error}".format(error=e))
+        except Exception as e:
+            self.module.fail_json(msg="Failed to delete group trigger. Error: {error}".format(error=e))
 
     def create_group_trigger(self, name, group_id, severity, enabled):
         """ Creates a group trigger in Hawkular Alerting component
@@ -173,6 +199,8 @@ def main():
 
     if state == "present":
         res_args = hawkular_alerts.create_group_trigger(name, group_id, severity, enabled)
+    else:
+        res_args = hawkular_alerts.delete_group_trigger(group_id)
     module.exit_json(**res_args)
 
 
