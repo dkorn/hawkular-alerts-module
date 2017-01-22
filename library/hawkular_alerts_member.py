@@ -109,6 +109,19 @@ class HawkularAlertsGroupMember(object):
             else:
                 self.module.fail_json(msg="Failed to get group trigger. Error: {error}".format(error=err))
 
+    def group_member_exist(self, group_id, name):
+        """
+        Searches the member name in the group trigger's members
+
+        Returns:
+            True if the member already exist, False otherwise
+        """
+        try:
+            group_members = self.client.get_group_members(group_id)
+        except Exception as e:
+            self.module.fail_json(msg="Failed to get group members. Error: {error}".format(error=e))
+        return next((True for gm in group_members if gm.name == name), False)
+
     def create_group_member(self, group_id, member_id, data_id_map, member_name=None):
         """ Creates a group member in Hawkular Alerting component
 
@@ -118,6 +131,11 @@ class HawkularAlertsGroupMember(object):
         """
         if not self.group_trigger_exist(group_id):
             self.module.fail_json(msg="Failed to create group member, group {group_id} does not exist ".format(group_id=group_id))
+        if self.group_member_exist(group_id, member_name):
+            return dict(
+                msg="Group member {member_name} already exist in group {group_id}".format(
+                    member_name=member_name, group_id=group_id),
+                changed=self.changed)
         try:
             #  create group member object
             member = hawkular.alerts.GroupMemberInfo()
