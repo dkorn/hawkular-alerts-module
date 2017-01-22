@@ -3,7 +3,7 @@
 
   tasks:
   - name: Create group trigger
-    hawkular_alerts_group:
+    hawkular_alerts_group_trigger:
       hawkular_api_hostname: 'hawkular-hostname.example.com'
       hawkular_api_port: 443
       hawkular_api_auth_token: '******'

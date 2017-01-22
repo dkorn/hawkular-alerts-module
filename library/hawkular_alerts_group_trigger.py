@@ -3,7 +3,7 @@
 
 DOCUMENTATION = '''
 ---
-module: hawkular_alerts_group
+module: hawkular_alerts_group_trigger
 short_description: Creating Group Triggers in Hawkular Alerting
 requirements: [ hawkular/hawkular-client-python ]
 author: Daniel Korn (@dkorn)
