@@ -4,7 +4,7 @@
 DOCUMENTATION = '''
 ---
 module: hawkular_alerts_group_trigger
-short_description: Creating and deleting Group Triggers in Hawkular Alerting
+short_description: Creating, updating and deleting Group Triggers in Hawkular Alerting
 requirements: [ hawkular/hawkular-client-python ]
 author: Daniel Korn (@dkorn)
 options:
@@ -57,7 +57,7 @@ options:
     description:
       - the state of the group trigger
       - On present, it will create the group trigger
-      if it does not exist
+      if it does not exist, or update it if needed
       - On absent, it will delete the group trigger,
       if it exists
     required: True
@@ -91,7 +91,7 @@ import ssl
 
 
 class HawkularAlertsGroupTrigger(object):
-    """ Hawkular Alerts object to create and delete group triggers in Hawkular
+    """ Hawkular Alerts object to create, update and delete group triggers in Hawkular
     """
     def __init__(self, module, tenant, hostname, port, scheme, token, context):
         self.module  = module
@@ -122,37 +122,90 @@ class HawkularAlertsGroupTrigger(object):
         except Exception as e:
             self.module.fail_json(msg="Failed to delete group trigger. Error: {error}".format(error=e))
 
-    def create_group_trigger(self, name, group_id, severity, enabled):
-        """ Creates a group trigger in Hawkular Alerting component
+    def required_updates(self, trigger, name, severity, enabled):
+        """ Checks whether an update is required for the group trigger
+
+            Returns:
+                Empty Hash (None) - If the name, severity and enabled status passed
+                                    equals the group trigger's current values
+                Hash of Changes   - Changes that need to be made if the name, severity
+                                    or enabled status are different than the current
+                                    values of the group trigger.
+        """
+        updates = {}
+
+        # `is not None` check verifies that omitted module params will not be updated
+        if (name is not None and trigger.name != name):
+            updates["name"] = name
+        if (severity is not None and trigger.severity != severity):
+            updates["severity"] = severity
+        if (enabled is not None and trigger.enabled != enabled):
+            updates["enabled"] = enabled
+        return updates
+
+    def update_group_trigger(self, trigger, updates):
+        """ Updates a group Trigger in Hawkular Alerts
 
             Returns:
                 whether or not a change took place and a short message
                 describing the operation executed
         """
         try:
-            self.client.get_trigger(group_id)
+            for attr in updates:
+                setattr(trigger, attr, updates[attr])
+            self.client.update_group_trigger(trigger.id, trigger)
+            self.changed = True
             return dict(
-                msg="Group trigger {group_id} already exist".format(group_id=group_id),
+                msg="Successfully updated group trigger {group_id}".format(group_id=trigger.id),
                 changed=self.changed)
+        except Exception as e:
+            self.module.fail_json(msg="Failed to update group trigger. Error: {error}".format(error=e))
+
+    def create_group_trigger(self, group_id, name, severity, enabled):
+        """ Creates a group Trigger in Hawkular Alerts
+
+            Returns:
+                whether or not a change took place and a short message
+                describing the operation executed
+        """
+        try:
+            #  create trigger object
+            trigger = hawkular.alerts.Trigger()
+            trigger.id = group_id
+            trigger.name = name
+            trigger.severity = severity
+            trigger.enabled = enabled
+
+            self.client.create_group_trigger(trigger)
+            self.changed = True
+            return dict(
+                msg="Successfully created group trigger {group_id}".format(group_id=group_id),
+                changed=self.changed)
+        except Exception as e:
+            self.module.fail_json(msg="Failed to create group trigger. Error: {error}".format(error=e))
+
+
+    def create_or_update_group_trigger(self, name, group_id, severity, enabled):
+        """ Creates or updates a group trigger in Hawkular Alerts
+
+            Returns:
+                whether or not a change took place and a short message
+                describing the operation executed
+        """
+        try:
+            gt = self.client.get_trigger(group_id)
         except urllib2.HTTPError as err:
             if err.code == 404:
-                try:
-                    #  create trigger object
-                    trigger = hawkular.alerts.Trigger()
-                    trigger.id = group_id
-                    trigger.name = name
-                    trigger.severity = getattr(hawkular.alerts.Severity, severity.upper())
-                    trigger.enabled = enabled
-
-                    self.client.create_group_trigger(trigger)
-                    self.changed = True
-                    return dict(
-                        msg="Successfully created group trigger {group_id}".format(group_id=group_id),
-                        changed=self.changed)
-                except Exception as e:
-                    self.module.fail_json(msg="Failed to create group trigger. Error: {error}".format(error=e))
+                return self.create_group_trigger(group_id, name, severity, enabled)
             else:
                 raise
+        updates = self.required_updates(gt, name, severity, enabled)
+        if not updates:
+            return dict(
+                msg="Group trigger {group_id} already exist, nothing to change.".format(group_id=group_id),
+                changed=self.changed)
+        else:
+            return self.update_group_trigger(gt, updates)
 
 
 def main():
@@ -187,7 +240,7 @@ def main():
     tenant   = module.params['tenant']
     name     = module.params['name']
     group_id = module.params['group_id']
-    severity = module.params['severity']
+    severity = getattr(hawkular.alerts.Severity, module.params['severity'].upper())
     scheme   = module.params['scheme']
     state    = module.params['state']
     enabled  = module.params['enabled']
@@ -198,7 +251,7 @@ def main():
     hawkular_alerts = HawkularAlertsGroupTrigger(module, tenant, hostname, port, scheme, token, context)
 
     if state == "present":
-        res_args = hawkular_alerts.create_group_trigger(name, group_id, severity, enabled)
+        res_args = hawkular_alerts.create_or_update_group_trigger(name, group_id, severity, enabled)
     else:
         res_args = hawkular_alerts.delete_group_trigger(group_id)
     module.exit_json(**res_args)
