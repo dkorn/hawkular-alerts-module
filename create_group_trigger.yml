@@ -12,6 +12,14 @@
       name: 'Test Group 01'
       severity: 'HIGH'
       state: 'present'
+      group_conditions:
+        trigger_mode: 'FIRING'
+        conditions:
+          - name: 'Test Condition'
+            type: 'THRESHOLD'
+            data_id: 'test_condition'
+            operator: 'GT'
+            threshold: 0.8
     register: result
 
   - debug: var=result

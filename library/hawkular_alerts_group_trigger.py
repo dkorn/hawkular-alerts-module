@@ -67,6 +67,12 @@ options:
       - whether the group trigger should be enabled or not
     required: False
     default: True
+  group_conditions:
+    description:
+      - Hash including the group trigger mode and a list
+      of group trigger conditions
+    required: False
+    default: null
   verify_ssl:
     description:
       - whether SSL certificates should be verified for HTTPS requests
@@ -78,7 +84,6 @@ options:
       - the path to a ca file
     required: false
     default: null
-
 '''
 
 EXAMPLES = '''
@@ -94,6 +99,14 @@ EXAMPLES = '''
     state: 'present'
     verify_ssl: True
     ca_file_path: /path/to/cafile.pem
+    group_conditions:
+      trigger_mode: 'FIRING'
+      conditions:
+        - name: 'Example Condition 01'
+          type: 'THRESHOLD'
+          data_id: 'example_condition'
+          operator: 'GT'
+          threshold: 0.8
 '''
 
 import os
@@ -134,6 +147,29 @@ class HawkularAlertsGroupTrigger(object):
         except Exception as e:
             self.module.fail_json(msg="Failed to delete group trigger. Error: {error}".format(error=e))
 
+    def conditions_update_required(self, trigger_id, desired_conditions):
+        """ Returns True if an update is required in one or more of the group
+            trigger conditions, False otherwise
+        """
+        current_conditions = self.client.get_trigger_conditions(trigger_id)
+
+        # compare number of conditions
+        if len(desired_conditions) != len(current_conditions):
+            return True
+
+        # sort conditions lists by the condition name
+        current_conditions_sorted = sorted(current_conditions, key=lambda k: k.context['name'])
+        desired_conditions_sorted = sorted(desired_conditions, key=lambda k: k['name'])
+
+        for i in range(len(desired_conditions_sorted)):
+            if desired_conditions_sorted[i]['name'] != current_conditions_sorted[i].context['name']:
+                return True
+            for key in desired_conditions_sorted[i].keys():
+                actual_value = current_conditions_sorted[i].context['name'] if key == 'name' else getattr(current_conditions_sorted[i], key)
+                if desired_conditions_sorted[i][key] != actual_value:
+                    return True
+        return False
+
     def required_updates(self, trigger, name, severity, enabled):
         """ Checks whether an update is required for the group trigger
 
@@ -155,49 +191,69 @@ class HawkularAlertsGroupTrigger(object):
             updates["enabled"] = enabled
         return updates
 
-    def update_group_trigger(self, trigger, updates):
+    def set_group_trigger_conditions(self, group_id, conditions):
+        """ Set the conditions for the group trigger
+        """
+        gc = hawkular.alerts.GroupConditionsInfo()
+        for c in conditions["conditions"]:
+            name = c.pop("name")
+            condition = hawkular.alerts.Condition(c)
+            condition.trigger_mode = conditions["trigger_mode"]
+            condition.context = {'name': name}
+            gc.addCondition(condition)
+        try:
+            self.client.create_group_conditions(group_id, conditions["trigger_mode"], gc)
+        except Exception as e:
+            self.module.fail_json(msg="Failed to set group trigger conditions. Error: {error}".format(error=e))
+        self.changed = True
+
+    def update_group_trigger(self, trigger, updates, conditions):
         """ Updates a group Trigger in Hawkular Alerts
 
             Returns:
                 whether or not a change took place and a short message
                 describing the operation executed
         """
+        for attr in updates:
+            setattr(trigger, attr, updates[attr])
         try:
-            for attr in updates:
-                setattr(trigger, attr, updates[attr])
             self.client.update_group_trigger(trigger.id, trigger)
-            self.changed = True
-            return dict(
-                msg="Successfully updated group trigger {group_id}".format(group_id=trigger.id),
-                changed=self.changed)
         except Exception as e:
             self.module.fail_json(msg="Failed to update group trigger. Error: {error}".format(error=e))
+        if conditions:
+            if self.conditions_update_required(trigger.id, conditions['conditions']):
+                self.set_group_trigger_conditions(trigger.id, conditions)
+        self.changed = True
+        return dict(
+            msg="Successfully updated group trigger {group_id}".format(group_id=trigger.id),
+            changed=self.changed)
 
-    def create_group_trigger(self, group_id, name, severity, enabled):
+    def create_group_trigger(self, group_id, name, severity, enabled, conditions):
         """ Creates a group Trigger in Hawkular Alerts
 
             Returns:
                 whether or not a change took place and a short message
                 describing the operation executed
         """
-        try:
-            #  create trigger object
-            trigger = hawkular.alerts.Trigger()
-            trigger.id = group_id
-            trigger.name = name
-            trigger.severity = severity
-            trigger.enabled = enabled
+        #  create trigger object
+        trigger = hawkular.alerts.Trigger()
+        trigger.id = group_id
+        trigger.name = name
+        trigger.severity = severity
+        trigger.enabled = enabled
 
+        try:
             self.client.create_group_trigger(trigger)
-            self.changed = True
-            return dict(
-                msg="Successfully created group trigger {group_id}".format(group_id=group_id),
-                changed=self.changed)
         except Exception as e:
             self.module.fail_json(msg="Failed to create group trigger. Error: {error}".format(error=e))
+        self.changed = True
+        if conditions:
+            self.set_group_trigger_conditions(group_id, conditions)
+        return dict(
+            msg="Successfully created group trigger {group_id}".format(group_id=group_id),
+            changed=self.changed)
 
-
-    def create_or_update_group_trigger(self, name, group_id, severity, enabled):
+    def create_or_update_group_trigger(self, name, group_id, severity, enabled, conditions):
         """ Creates or updates a group trigger in Hawkular Alerts
 
             Returns:
@@ -208,16 +264,23 @@ class HawkularAlertsGroupTrigger(object):
             gt = self.client.get_trigger(group_id)
         except urllib2.HTTPError as err:
             if err.code == 404:
-                return self.create_group_trigger(group_id, name, severity, enabled)
+                return self.create_group_trigger(group_id, name, severity, enabled, conditions)
             else:
                 raise
         updates = self.required_updates(gt, name, severity, enabled)
         if not updates:
-            return dict(
-                msg="Group trigger {group_id} already exist, nothing to change.".format(group_id=group_id),
-                changed=self.changed)
+            if conditions is not None and self.conditions_update_required(group_id, conditions["conditions"]):
+                self.set_group_trigger_conditions(group_id, conditions)
+                self.changed = True
+                return dict(
+                    msg="Updated group trigger {group_id} conditions".format(group_id=group_id),
+                    changed=self.changed)
+            else:
+                return dict(
+                    msg="Group trigger {group_id} already exist, nothing to change.".format(group_id=group_id),
+                    changed=self.changed)
         else:
-            return self.update_group_trigger(gt, updates)
+            return self.update_group_trigger(gt, updates, conditions)
 
 
 def main():
@@ -238,6 +301,7 @@ def main():
             enabled=dict(required=False, type='bool', default=True),
             ca_file_path=dict(required=False, type='str'),
             verify_ssl=dict(required=False, type='bool', default=True),
+            group_conditions=dict(required=False, type='dict'),
         ),
         required_if=[
             ('state', 'present', ['name', 'severity'])
@@ -260,6 +324,7 @@ def main():
     enabled    = module.params['enabled']
     verify_ssl = module.params['verify_ssl']
     ca_file    = module.params['ca_file_path']
+    conditions = module.params['group_conditions']
 
     context = None
     if not verify_ssl:
@@ -270,7 +335,7 @@ def main():
     hawkular_alerts = HawkularAlertsGroupTrigger(module, tenant, hostname, port, scheme, token, context)
 
     if state == "present":
-        res_args = hawkular_alerts.create_or_update_group_trigger(name, group_id, severity, enabled)
+        res_args = hawkular_alerts.create_or_update_group_trigger(name, group_id, severity, enabled, conditions)
     else:
         res_args = hawkular_alerts.delete_group_trigger(group_id)
     module.exit_json(**res_args)
