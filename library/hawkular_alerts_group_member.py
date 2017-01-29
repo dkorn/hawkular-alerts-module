@@ -48,10 +48,11 @@ options:
   state:
     description:
       - the state of the user
-      - On present, it will create the group trigger
+      - On present, it will create the group member trigger
       if it does not exist
+      - On list, it will find all group member triggers
     required: True
-    choices: ['present', 'absent']
+    choices: ['present', 'list']
   scheme:
     description:
       - the hawkular scheme
@@ -94,6 +95,22 @@ class HawkularAlertsGroupMember(object):
         self.module  = module
         self.client  = hawkular.alerts.HawkularAlertsClient(tenant, host=hostname, port=port, scheme=scheme, token=token, context=context)
         self.changed = False
+
+    def list_group_members(self, group_id):
+        """  Returns:
+                 all group member triggers
+        """
+        if not self.group_trigger_exist(group_id):
+            self.module.fail_json(msg="Failed to list group members of group {group_id}".format(group_id=group_id))
+        try:
+            group_members = self.client.get_group_members(group_id)
+            group_members_dicts_list = [vars(member) for member in group_members]
+        except Exception as e:
+            self.module.fail_json(msg="Failed to get group member triggers. Error: {error}".format(error=e))
+        return dict(
+            msg="Successfuly listed group {group_id} member triggers".format(group_id=group_id),
+            changed=self.changed,
+            group_members=group_members_dicts_list)
 
     def group_trigger_exist(self, group_id):
         """
@@ -162,13 +179,14 @@ def main():
             hawkular_api_auth_token=dict(
                 default=os.environ.get('HAWKULAR_TOKEN'), type='str'),
             tenant=dict(required=True, type='str'),
-            state=dict(required=True, type='str', choices=['present', 'absent']),
+            state=dict(required=True, type='str', choices=['present', 'list']),
             group_id=dict(required=True, type='str'),
-            id=dict(required=True, type='str'),
+            id=dict(required=False, type='str'),
             name=dict(required=False, type='str'),
-            data_id_map=dict(required=True, type='dict'),
+            data_id_map=dict(required=False, type='dict'),
             scheme=dict(required=False, type='str', choices=['https', 'http'], default='https'),
         ),
+        required_if=[('state', 'present', ['id', 'data_id_map'])],
     )
 
     for arg in ['hawkular_api_hostname', 'hawkular_api_port', 'hawkular_api_auth_token']:
@@ -194,6 +212,8 @@ def main():
 
     if state == "present":
         res_args = hawkular_alerts.create_group_member(group_id, member_id, data_id_map, member_name)
+    elif state == "list":
+        res_args = hawkular_alerts.list_group_members(group_id)
     module.exit_json(**res_args)
 
 
