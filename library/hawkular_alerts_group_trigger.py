@@ -67,6 +67,18 @@ options:
       - whether the group trigger should be enabled or not
     required: False
     default: True
+  verify_ssl:
+    description:
+      - whether SSL certificates should be verified for HTTPS requests
+    required: false
+    default: True
+    choices: ['True', 'False']
+  ca_file_path:
+    description:
+      - the path to a ca file
+    required: false
+    default: null
+
 '''
 
 EXAMPLES = '''
@@ -80,14 +92,14 @@ EXAMPLES = '''
     name: 'Example Group Trigger'
     severity: 'high'
     state: 'present'
+    verify_ssl: True
+    ca_file_path: /path/to/cafile.pem
 '''
 
-import urllib2
-import hawkular.alerts
-
-# TODO: remove once the ssl cert verification is checked
 import os
 import ssl
+import urllib2
+import hawkular.alerts
 
 
 class HawkularAlertsGroupTrigger(object):
@@ -224,6 +236,8 @@ def main():
             state=dict(required=True, type='str', choices=['present', 'absent']),
             scheme=dict(required=False, type='str', choices=['https', 'http'], default='https'),
             enabled=dict(required=False, type='bool', default=True),
+            ca_file_path=dict(required=False, type='str'),
+            verify_ssl=dict(required=False, type='bool', default=True),
         ),
         required_if=[
             ('state', 'present', ['name', 'severity'])
@@ -234,19 +248,24 @@ def main():
         if module.params[arg] in (None, ''):
             module.fail_json(msg="missing required argument: {}".format(arg))
 
-    hostname = module.params['hawkular_api_hostname']
-    port     = module.params['hawkular_api_port']
-    token    = module.params['hawkular_api_auth_token']
-    tenant   = module.params['tenant']
-    name     = module.params['name']
-    group_id = module.params['group_id']
-    severity = getattr(hawkular.alerts.Severity, module.params['severity'].upper())
-    scheme   = module.params['scheme']
-    state    = module.params['state']
-    enabled  = module.params['enabled']
+    hostname   = module.params['hawkular_api_hostname']
+    port       = module.params['hawkular_api_port']
+    token      = module.params['hawkular_api_auth_token']
+    tenant     = module.params['tenant']
+    name       = module.params['name']
+    group_id   = module.params['group_id']
+    severity   = getattr(hawkular.alerts.Severity, module.params['severity'].upper())
+    scheme     = module.params['scheme']
+    state      = module.params['state']
+    enabled    = module.params['enabled']
+    verify_ssl = module.params['verify_ssl']
+    ca_file    = module.params['ca_file_path']
 
-    # TODO: remove once the ssl cert verification is checked
-    context = ssl._create_unverified_context()
+    context = None
+    if not verify_ssl:
+        context = ssl._create_unverified_context()
+    elif ca_file:
+        context = ssl.create_default_context(cafile=ca_file)
 
     hawkular_alerts = HawkularAlertsGroupTrigger(module, tenant, hostname, port, scheme, token, context)
 
