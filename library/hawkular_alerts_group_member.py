@@ -59,11 +59,17 @@ options:
     default: 'https'
     required: False
     choices: ['https', 'http']
-  cafile:
+  verify_ssl:
     description:
-      - the path to the ca file
+      - whether SSL certificates should be verified for HTTPS requests
+    required: false
+    default: True
+    choices: ['True', 'False']
+  ca_file_path:
+    description:
+      - the path to a ca file
+    required: false
     default: null
-    required: False
 '''
 
 EXAMPLES = '''
@@ -79,13 +85,14 @@ EXAMPLES = '''
     name: 'Member One'
     data_id_map:
       my-metric-id: my-metric-id-member1
+    verify_ssl: True
+    ca_file_path: /path/to/cafile.pem
 '''
 
+import os
+import ssl
 import urllib2
 import hawkular.alerts
-
-# TODO: remove once the ssl cert verification is checked
-import os
 
 
 class HawkularAlertsGroupMember(object):
@@ -185,6 +192,8 @@ def main():
             name=dict(required=False, type='str'),
             data_id_map=dict(required=False, type='dict'),
             scheme=dict(required=False, type='str', choices=['https', 'http'], default='https'),
+            ca_file_path=dict(required=False, type='str'),
+            verify_ssl=dict(required=False, type='bool', default=True),
         ),
         required_if=[('state', 'present', ['id', 'data_id_map'])],
     )
@@ -203,10 +212,14 @@ def main():
     data_id_map = module.params['data_id_map']
     scheme      = module.params['scheme']
     state       = module.params['state']
+    verify_ssl  = module.params['verify_ssl']
+    ca_file     = module.params['ca_file_path']
 
-    # TODO: remove once the ssl cert verification is checked
-    import ssl
-    context = ssl._create_unverified_context()
+    context = None
+    if not verify_ssl:
+        context = ssl._create_unverified_context()
+    elif ca_file:
+        context = ssl.create_default_context(cafile=ca_file)
 
     hawkular_alerts = HawkularAlertsGroupMember(module, tenant, hostname, port, scheme, token, context)
 
