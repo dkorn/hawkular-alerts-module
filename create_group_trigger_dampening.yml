@@ -1,0 +1,24 @@
+---
+- hosts: localhost
+
+  tasks:
+  - name: Create group trigger dampenings
+    hawkular_alerts_group_dampening:
+      hawkular_api_hostname: 'hawkular-hostname.example.com'
+      hawkular_api_port: 443
+      hawkular_api_auth_token: '******'
+      tenant: '_system'
+      group_id: 'test_group-01'
+      state: 'present'
+      verify_ssl: False
+      dampenings:
+        FIRING:
+          type: 'STRICT'
+          eval_true_setting: 3
+        AUTORESOLVE:
+          type: 'RELAXED_COUNT'
+          eval_true_setting: 2
+          eval_total_setting: 4
+    register: result
+
+  - debug: var=result
