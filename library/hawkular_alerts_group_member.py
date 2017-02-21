@@ -54,7 +54,7 @@ options:
       if it exists
       - On list, it will find all group member triggers
     required: True
-    choices: ['present', 'list']
+    choices: ['present', 'absent', 'list']
   scheme:
     description:
       - the hawkular scheme
@@ -206,7 +206,7 @@ def main():
             hawkular_api_auth_token=dict(
                 default=os.environ.get('HAWKULAR_TOKEN'), type='str'),
             tenant=dict(required=True, type='str'),
-            state=dict(required=True, type='str', choices=['present', 'list']),
+            state=dict(required=True, type='str', choices=['present', 'absent', 'list']),
             group_id=dict(required=True, type='str'),
             id=dict(required=False, type='str'),
             name=dict(required=False, type='str'),
