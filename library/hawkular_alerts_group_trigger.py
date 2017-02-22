@@ -60,8 +60,9 @@ options:
       if it does not exist, or update it if needed
       - On absent, it will delete the group trigger,
       if it exists
+      - On list, it will return all triggers in the tenant
     required: True
-    choices: ['present', 'absent']
+    choices: ['present', 'absent', 'list']
   enabled:
     description:
       - whether the group trigger should be enabled or not
@@ -122,6 +123,21 @@ class HawkularAlertsGroupTrigger(object):
         self.module  = module
         self.client  = hawkular.alerts.HawkularAlertsClient(tenant, host=hostname, port=port, scheme=scheme, token=token, context=context)
         self.changed = False
+
+    def list_triggers(self):
+        """
+            Returns:
+                All triggers in the tenant
+        """
+        try:
+            triggers = self.client.list_triggers()
+        except Exception as e:
+            self.module.fail_json(msg="Failed to list triggers. Error: {error}".format(error=e))
+        triggers_dicts_list = [vars(trigger) for trigger in triggers]
+        return dict(
+            msg="Successfully listed triggers",
+            changed=self.changed,
+            triggers=triggers_dicts_list)
 
     def delete_group_trigger(self, group_id):
         """ Deleted a group trigger in Hawkular Alerting component
@@ -296,7 +312,7 @@ def main():
             name=dict(type='str'),
             group_id=dict(required=True, type='str'),
             severity=dict(type='str'),
-            state=dict(required=True, type='str', choices=['present', 'absent']),
+            state=dict(required=True, type='str', choices=['present', 'absent', 'list']),
             scheme=dict(required=False, type='str', choices=['https', 'http'], default='https'),
             enabled=dict(required=False, type='bool', default=True),
             ca_file_path=dict(required=False, type='str'),
@@ -336,8 +352,10 @@ def main():
 
     if state == "present":
         res_args = hawkular_alerts.create_or_update_group_trigger(name, group_id, severity, enabled, conditions)
-    else:
+    elif state == "absent":
         res_args = hawkular_alerts.delete_group_trigger(group_id)
+    elif state == "list":
+        res_args = hawkular_alerts.list_triggers()
     module.exit_json(**res_args)
 
 
