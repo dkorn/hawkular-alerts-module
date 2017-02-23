@@ -11,6 +11,7 @@
       group_id: 'test_group-01'
       name: 'Test Group 01'
       severity: 'HIGH'
+      auto_resolve: true
       state: 'present'
       conditions:
         - name: 'Test Condition 01'
