@@ -68,10 +68,9 @@ options:
       - whether the group trigger should be enabled or not
     required: False
     default: True
-  group_conditions:
+  conditions:
     description:
-      - Hash including the group trigger mode and a list
-      of group trigger conditions
+      - List of group trigger conditions
     required: False
     default: null
   verify_ssl:
@@ -100,14 +99,13 @@ EXAMPLES = '''
     state: 'present'
     verify_ssl: True
     ca_file_path: /path/to/cafile.pem
-    group_conditions:
+    conditions:
+    - name: 'Example Condition 01'
       trigger_mode: 'FIRING'
-      conditions:
-        - name: 'Example Condition 01'
-          type: 'THRESHOLD'
-          data_id: 'example_condition'
-          operator: 'GT'
-          threshold: 0.8
+      type: 'THRESHOLD'
+      data_id: 'example_condition'
+      operator: 'GT'
+      threshold: 0.8
 '''
 
 import os
@@ -210,15 +208,21 @@ class HawkularAlertsGroupTrigger(object):
     def set_group_trigger_conditions(self, group_id, conditions):
         """ Set the conditions for the group trigger
         """
-        gc = hawkular.alerts.GroupConditionsInfo()
-        for c in conditions["conditions"]:
+        firing_gc = hawkular.alerts.GroupConditionsInfo()
+        autoresolve_gc = hawkular.alerts.GroupConditionsInfo()
+        for c in conditions:
             name = c.pop("name")
             condition = hawkular.alerts.Condition(c)
-            condition.trigger_mode = conditions["trigger_mode"]
             condition.context = {'name': name}
-            gc.addCondition(condition)
+            if condition.trigger_mode == "FIRING":
+                firing_gc.addCondition(condition)
+            elif condition.trigger_mode == "AUTORESOLVE":
+                autoresolve_gc.addCondition(condition)
+            else:
+                self.module.fail_json(msg="group condition trigger_mode can be 'FIRING' or 'AUTORESOLVE', got: {trigger_mode}".format(trigger_mode=condition.trigger_mode))
         try:
-            self.client.create_group_conditions(group_id, conditions["trigger_mode"], gc)
+            self.client.create_group_conditions(group_id, "FIRING", firing_gc)
+            self.client.create_group_conditions(group_id, "AUTORESOLVE", autoresolve_gc)
         except Exception as e:
             self.module.fail_json(msg="Failed to set group trigger conditions. Error: {error}".format(error=e))
         self.changed = True
@@ -236,8 +240,8 @@ class HawkularAlertsGroupTrigger(object):
             self.client.update_group_trigger(trigger.id, trigger)
         except Exception as e:
             self.module.fail_json(msg="Failed to update group trigger. Error: {error}".format(error=e))
-        if conditions:
-            if self.conditions_update_required(trigger.id, conditions['conditions']):
+        if conditions is not None:
+            if self.conditions_update_required(trigger.id, conditions):
                 self.set_group_trigger_conditions(trigger.id, conditions)
         self.changed = True
         return dict(
@@ -285,7 +289,7 @@ class HawkularAlertsGroupTrigger(object):
                 raise
         updates = self.required_updates(gt, name, severity, enabled)
         if not updates:
-            if conditions is not None and self.conditions_update_required(group_id, conditions["conditions"]):
+            if conditions is not None and self.conditions_update_required(group_id, conditions):
                 self.set_group_trigger_conditions(group_id, conditions)
                 self.changed = True
                 return dict(
@@ -317,7 +321,7 @@ def main():
             enabled=dict(required=False, type='bool', default=True),
             ca_file_path=dict(required=False, type='str'),
             verify_ssl=dict(required=False, type='bool', default=True),
-            group_conditions=dict(required=False, type='dict'),
+            conditions=dict(required=False, type='list'),
         ),
         required_if=[
             ('state', 'present', ['name', 'severity'])
@@ -340,7 +344,7 @@ def main():
     enabled    = module.params['enabled']
     verify_ssl = module.params['verify_ssl']
     ca_file    = module.params['ca_file_path']
-    conditions = module.params['group_conditions']
+    conditions = module.params['conditions']
 
     context = None
     if not verify_ssl:
