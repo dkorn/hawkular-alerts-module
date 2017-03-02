@@ -10,9 +10,12 @@
       tenant: '_system'
       group_id: 'test_group-01'
       name: 'Test Group 01'
+      event_text: 'Test group displayed text'
       severity: 'HIGH'
       auto_resolve: true
       state: 'present'
+      tags:
+        type: node
       conditions:
         - name: 'Test Condition 01'
           trigger_mode: 'FIRING'
