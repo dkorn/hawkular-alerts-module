@@ -40,9 +40,19 @@ options:
     description:
       - a mapping of the token to the real data_id
     required: True
+  tags:
+    description:
+      - Tags defined by the user for this trigger. A tag is a [name, value] pair
+    default: null
+    required: False
   name:
     description:
       - the group member name
+    default: null
+    required: False
+  description:
+    description:
+      - the group member description
     default: null
     required: False
   state:
@@ -85,8 +95,11 @@ EXAMPLES = '''
     group_id: 'example-group-trigger'
     id: 'member1'
     name: 'Member One'
+    description: 'this is a member of example-group-trigger'
     data_id_map:
       my-metric-id: my-metric-id-member1
+    tags:
+      nodename: mynode.example.com
     verify_ssl: True
     ca_file_path: /path/to/cafile.pem
 '''
@@ -135,7 +148,7 @@ class HawkularAlertsGroupMember(object):
             else:
                 self.module.fail_json(msg="Failed to get group trigger. Error: {error}".format(error=err))
 
-    def group_member_exist(self, group_id, member_id):
+    def group_member_exist(self, group_id, id):
         """
         Searches the member ID in the group trigger's members
 
@@ -146,27 +159,27 @@ class HawkularAlertsGroupMember(object):
             group_members = self.client.get_group_members(group_id)
         except Exception as e:
             self.module.fail_json(msg="Failed to get group members. Error: {error}".format(error=e))
-        return any(gm.id == member_id for gm in group_members)
+        return any(gm.id == id for gm in group_members)
 
-    def delete_group_member(self, group_id, member_id):
+    def delete_group_member(self, group_id, id):
         """ Deletes an existing group member trigger
         """
-        if not self.group_member_exist(group_id, member_id):
+        if not self.group_member_exist(group_id, id):
             return dict(
-                msg="Group member {member_id} does not exist, nothing to do".format(
-                    member_id=member_id),
+                msg="Group member {id} does not exist, nothing to do".format(
+                    id=id),
                 changed=self.changed)
         try:
-            self.client.delete_trigger(member_id)
+            self.client.delete_trigger(id)
         except Exception as e:
-            self.module.fail_json(msg="Failed to delete group member {member_id}. Error: {error}".format(
-                member_id=member_id, error=e))
+            self.module.fail_json(msg="Failed to delete group member {id}. Error: {error}".format(
+                id=id, error=e))
         self.changed = True
         return dict(
-            msg="Successfully deleted group member {member_id}".format(member_id=member_id),
+            msg="Successfully deleted group member {id}".format(id=id),
             changed=self.changed)
 
-    def create_group_member(self, group_id, member_id, data_id_map, member_name=None):
+    def create_group_member(self, group_id, id, data_id_map, tags=None, name=None, description=None):
         """ Creates a group member in Hawkular Alerting component
 
             Returns:
@@ -175,22 +188,24 @@ class HawkularAlertsGroupMember(object):
         """
         if not self.group_trigger_exist(group_id):
             self.module.fail_json(msg="Failed to create group member, group {group_id} does not exist ".format(group_id=group_id))
-        if self.group_member_exist(group_id, member_id):
+        if self.group_member_exist(group_id, id):
             return dict(
-                msg="Group member {member_name} already exist in group {group_id}".format(
-                    member_name=member_name, group_id=group_id),
+                msg="Group member {name} already exist in group {group_id}".format(
+                    name=name, group_id=group_id),
                 changed=self.changed)
         try:
             #  create group member object
             member = hawkular.alerts.GroupMemberInfo()
             member.group_id = group_id
-            member.member_id = member_id
-            member.member_name = member_name
+            member.member_id = id
+            member.member_name = name
+            member.member_description = description
             member.data_id_map = data_id_map
+            member.member_tags = tags
             self.client.create_group_member(member)
             self.changed = True
             return dict(
-                msg="Successfully created group member {member_id}".format(member_id=member_id),
+                msg="Successfully created group member {id}".format(id=id),
                 changed=self.changed)
         except Exception as e:
             self.module.fail_json(msg="Failed to create group member. Error: {error}".format(error=e))
@@ -210,7 +225,9 @@ def main():
             group_id=dict(required=True, type='str'),
             id=dict(required=False, type='str'),
             name=dict(required=False, type='str'),
+            description=dict(required=False, type='str'),
             data_id_map=dict(required=False, type='dict'),
+            tags=dict(required=False, type='dict'),
             scheme=dict(required=False, type='str', choices=['https', 'http'], default='https'),
             ca_file_path=dict(required=False, type='str'),
             verify_ssl=dict(required=False, type='bool', default=True),
@@ -227,9 +244,11 @@ def main():
     token       = module.params['hawkular_api_auth_token']
     tenant      = module.params['tenant']
     group_id    = module.params['group_id']
-    member_id   = module.params['id']
-    member_name = module.params['name']
+    id          = module.params['id']
+    name        = module.params['name']
+    description = module.params['description']
     data_id_map = module.params['data_id_map']
+    tags        = module.params['tags']
     scheme      = module.params['scheme']
     state       = module.params['state']
     verify_ssl  = module.params['verify_ssl']
@@ -244,9 +263,9 @@ def main():
     hawkular_alerts = HawkularAlertsGroupMember(module, tenant, hostname, port, scheme, token, context)
 
     if state == "present":
-        res_args = hawkular_alerts.create_group_member(group_id, member_id, data_id_map, member_name)
+        res_args = hawkular_alerts.create_group_member(group_id, id, data_id_map, tags, name, description)
     elif state == "absent":
-        res_args = hawkular_alerts.delete_group_member(group_id, member_id)
+        res_args = hawkular_alerts.delete_group_member(group_id, id)
     elif state == "list":
         res_args = hawkular_alerts.list_group_members(group_id)
     module.exit_json(**res_args)

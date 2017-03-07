@@ -11,8 +11,11 @@
       group_id: 'test_group-01'
       id: 'member1'
       name: 'Member One'
+      description: 'the first member of test_group-01 trigger'
       data_id_map:
         'test_condition': 'test_condition_member1'
+      tags:
+        nodename: node01
       state: 'present'
     register: result
 

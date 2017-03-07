@@ -32,6 +32,11 @@ options:
       - the group trigger name
     default: null
     required: False
+  event_text:
+    description:
+      - The text of the event produced by the trigger.
+    default: null
+    required: False
   group_id:
     description:
       - the group trigger id. This is the primary field on which one matches
@@ -40,6 +45,16 @@ options:
   severity:
     description:
       - the group trigger severity
+    default: null
+    required: False
+  auto_resolve:
+    description:
+      - is auto-resolve enabled, meaning switch to auto-resolve mode after firing
+    default: false
+    required: False
+  tags:
+    description:
+      - Tags defined by the user for this trigger. A tag is a [name, value] pair
     default: null
     required: False
   scheme:
@@ -95,10 +110,15 @@ EXAMPLES = '''
     tenant: '_system'
     group_id: 'example-group-trigger'
     name: 'Example Group Trigger'
+    event_text 'this event has been triggered'
     severity: 'high'
+    auto_resolve: false
     state: 'present'
     verify_ssl: True
     ca_file_path: /path/to/cafile.pem
+    tags:
+      type: node
+      url: trigger.example.com
     conditions:
     - name: 'Example Condition 01'
       trigger_mode: 'FIRING'
@@ -184,25 +204,20 @@ class HawkularAlertsGroupTrigger(object):
                     return True
         return False
 
-    def required_updates(self, trigger, name, severity, enabled):
+    def required_updates(self, trigger, group_trigger_attributes):
         """ Checks whether an update is required for the group trigger
-
             Returns:
-                Empty Hash (None) - If the name, severity and enabled status passed
-                                    equals the group trigger's current values
-                Hash of Changes   - Changes that need to be made if the name, severity
-                                    or enabled status are different than the current
-                                    values of the group trigger.
+                Empty Hash      - If the parameters passed equals the group trigger's current values
+                Hash of Changes - Changes that need to be made if one or more of the sent values are different than
+                                  the current values of the group trigger.
         """
         updates = {}
 
         # `is not None` check verifies that omitted module params will not be updated
-        if (name is not None and trigger.name != name):
-            updates["name"] = name
-        if (severity is not None and trigger.severity != severity):
-            updates["severity"] = severity
-        if (enabled is not None and trigger.enabled != enabled):
-            updates["enabled"] = enabled
+        for key in group_trigger_attributes.keys():
+            if group_trigger_attributes[key] is not None and \
+                            getattr(trigger, key) != group_trigger_attributes[key]:
+                updates[key] = group_trigger_attributes[key]
         return updates
 
     def set_group_trigger_conditions(self, group_id, conditions):
@@ -248,7 +263,7 @@ class HawkularAlertsGroupTrigger(object):
             msg="Successfully updated group trigger {group_id}".format(group_id=trigger.id),
             changed=self.changed)
 
-    def create_group_trigger(self, group_id, name, severity, enabled, conditions):
+    def create_group_trigger(self, group_id, name, event_text, severity, auto_resolve, tags, enabled, conditions):
         """ Creates a group Trigger in Hawkular Alerts
 
             Returns:
@@ -259,7 +274,10 @@ class HawkularAlertsGroupTrigger(object):
         trigger = hawkular.alerts.Trigger()
         trigger.id = group_id
         trigger.name = name
+        trigger.event_text = event_text
         trigger.severity = severity
+        trigger.auto_resolve = auto_resolve
+        trigger.tags = tags
         trigger.enabled = enabled
 
         try:
@@ -273,7 +291,8 @@ class HawkularAlertsGroupTrigger(object):
             msg="Successfully created group trigger {group_id}".format(group_id=group_id),
             changed=self.changed)
 
-    def create_or_update_group_trigger(self, name, group_id, severity, enabled, conditions):
+    def create_or_update_group_trigger(self, name, group_id, event_text, severity, auto_resolve, tags, enabled,
+                                       conditions):
         """ Creates or updates a group trigger in Hawkular Alerts
 
             Returns:
@@ -284,10 +303,16 @@ class HawkularAlertsGroupTrigger(object):
             gt = self.client.get_trigger(group_id)
         except urllib2.HTTPError as err:
             if err.code == 404:
-                return self.create_group_trigger(group_id, name, severity, enabled, conditions)
+                return self.create_group_trigger(group_id, name, event_text, severity, auto_resolve,
+                                                 tags, enabled, conditions)
             else:
                 raise
-        updates = self.required_updates(gt, name, severity, enabled)
+        updates = self.required_updates(gt, {"name": name,
+                                             "event_text": event_text,
+                                             "severity": severity,
+                                             "auto_resolve": auto_resolve,
+                                             "tags": tags,
+                                             "enabled": enabled})
         if not updates:
             if conditions is not None and self.conditions_update_required(group_id, conditions):
                 self.set_group_trigger_conditions(group_id, conditions)
@@ -314,8 +339,11 @@ def main():
                 default=os.environ.get('HAWKULAR_TOKEN'), type='str'),
             tenant=dict(required=True, type='str'),
             name=dict(type='str'),
+            event_text=dict(required=False, type='str'),
             group_id=dict(required=True, type='str'),
             severity=dict(type='str'),
+            auto_resolve=dict(required=False, type='bool', default=False),
+            tags=dict(required=False, type='dict'),
             state=dict(required=True, type='str', choices=['present', 'absent', 'list']),
             scheme=dict(required=False, type='str', choices=['https', 'http'], default='https'),
             enabled=dict(required=False, type='bool', default=True),
@@ -332,19 +360,22 @@ def main():
         if module.params[arg] in (None, ''):
             module.fail_json(msg="missing required argument: {}".format(arg))
 
-    hostname   = module.params['hawkular_api_hostname']
-    port       = module.params['hawkular_api_port']
-    token      = module.params['hawkular_api_auth_token']
-    tenant     = module.params['tenant']
-    name       = module.params['name']
-    group_id   = module.params['group_id']
-    severity   = getattr(hawkular.alerts.Severity, module.params['severity'].upper())
-    scheme     = module.params['scheme']
-    state      = module.params['state']
-    enabled    = module.params['enabled']
-    verify_ssl = module.params['verify_ssl']
-    ca_file    = module.params['ca_file_path']
-    conditions = module.params['conditions']
+    hostname     = module.params['hawkular_api_hostname']
+    port         = module.params['hawkular_api_port']
+    token        = module.params['hawkular_api_auth_token']
+    tenant       = module.params['tenant']
+    name         = module.params['name']
+    event_text   = module.params['event_text']
+    group_id     = module.params['group_id']
+    severity     = getattr(hawkular.alerts.Severity, module.params['severity'].upper())
+    auto_resolve = module.params['auto_resolve']
+    tags         = module.params['tags']
+    scheme       = module.params['scheme']
+    state        = module.params['state']
+    enabled      = module.params['enabled']
+    verify_ssl   = module.params['verify_ssl']
+    ca_file      = module.params['ca_file_path']
+    conditions   = module.params['conditions']
 
     context = None
     if not verify_ssl:
@@ -355,7 +386,7 @@ def main():
     hawkular_alerts = HawkularAlertsGroupTrigger(module, tenant, hostname, port, scheme, token, context)
 
     if state == "present":
-        res_args = hawkular_alerts.create_or_update_group_trigger(name, group_id, severity, enabled, conditions)
+        res_args = hawkular_alerts.create_or_update_group_trigger(name, group_id, event_text, severity, auto_resolve, tags, enabled, conditions)
     elif state == "absent":
         res_args = hawkular_alerts.delete_group_trigger(group_id)
     elif state == "list":
