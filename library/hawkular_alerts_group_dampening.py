@@ -249,7 +249,7 @@ def main():
             hawkular_api_port=dict(
                 default=os.environ.get('HAWKULAR_PORT'), type='int'),
             hawkular_api_auth_token=dict(
-                default=os.environ.get('HAWKULAR_TOKEN'), type='str'),
+                default=os.environ.get('HAWKULAR_TOKEN'), type='str', no_log=True),
             tenant=dict(required=True, type='str'),
             group_id=dict(required=True, type='str'),
             state=dict(required=True, type='str', choices=['present', 'absent', 'list']),
