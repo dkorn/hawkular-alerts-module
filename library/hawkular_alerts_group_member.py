@@ -4,7 +4,8 @@
 DOCUMENTATION = '''
 ---
 module: hawkular_alerts_group_member
-short_description: Creating Group Trigger Members in Hawkular Alerting
+description: The hawkular_alerts_group_member module supports creating, updating, listing and deleting Group Trigger Members in Hawkular Alerts
+short_description: Creating, updating, listing and deleting Group Trigger Members in Hawkular Alerting
 requirements: [ hawkular/hawkular-client-python ]
 author: Daniel Korn (@dkorn)
 options:
@@ -59,9 +60,9 @@ options:
     description:
       - the state of the user
       - On present, it will create the group member trigger
-      if it does not exist
+        if it does not exist
       - On absent, it will delete the group member trigger
-      if it exists
+        if it exists
       - On list, it will find all group member triggers
     required: True
     choices: ['present', 'absent', 'list']
