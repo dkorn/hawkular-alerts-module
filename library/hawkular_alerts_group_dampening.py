@@ -4,6 +4,7 @@
 DOCUMENTATION = '''
 ---
 module: hawkular_alerts_group_dampening
+description: The hawkular_alerts_group_dampening module supports creating, updating listing and deleting Group Trigger Dampenings in Hawkular Alerts
 short_description: Creating, updating listing and deleting Group Trigger Dampenings in Hawkular Alerting
 requirements: [ hawkular/hawkular-client-python ]
 author: Daniel Korn (@dkorn)
@@ -46,17 +47,17 @@ options:
     description:
       - the state of the group dampening
       - On present, it will create the group dampening
-      if it does not exist, or update it if needed
+        if it does not exist, or update it if needed
       - On absent, it will delete the group dampening,
-      if it exists
+        if it exists
     required: True
     choices: ['present', 'absent', 'list']
   dampenings:
     description:
       - A hash (dictionary) of group trigger dampening definitions to be
-      created, updated or deleted.
+        created, updated or deleted.
       - The key for each dampening is its trigger mode,
-      'FIRING' or 'AUTORESOLVE'
+        'FIRING' or 'AUTORESOLVE'
     required: False
     default: null
   verify_ssl:
