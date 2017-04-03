@@ -1,0 +1,20 @@
+---
+- hosts: localhost
+
+  tasks:
+  - name: Create Group Condition
+    hawkular_alerts_condition:
+      hawkular_api_hostname: 'hawkular-hostname.example.com'
+      hawkular_api_port: 443
+      hawkular_api_auth_token: '******'
+      tenant: '_system'
+      group_id: 'test_group-01'
+      trigger_mode: 'FIRING'
+      type: 'THRESHOLD'
+      data_id: 'test_condition'
+      operator: 'GT'
+      data: 0.8
+      state: 'present'
+    register: result
+
+  - debug: var=result
